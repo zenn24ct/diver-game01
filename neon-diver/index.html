@@ -463,13 +463,6 @@ function draw(gameOver) {
   ctx.fillRect(player.x, player.y, player.w, player.h);
   ctx.shadowBlur = 0;
 
-  // 目
-  ctx.fillStyle = '#fff';
-  const eyeSize = Math.round(player.w * 0.2);
-  const eyeOffset = Math.round(player.w * 0.2);
-  ctx.fillRect(player.x + eyeOffset, player.y + eyeOffset, eyeSize, eyeSize);
-  ctx.fillRect(player.x + player.w - eyeOffset - eyeSize, player.y + eyeOffset, eyeSize, eyeSize);
-
   if (gameOver) {
     handleGameOverDOM(true);
   } else {
