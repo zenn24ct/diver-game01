@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Treasure Diver</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body{
+    height:100%;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,"Hiragino Kaku Gothic ProN";
+    overflow:hidden;
+  }
+  body{
+    background:linear-gradient(to bottom, #87CEEB 0%, #1e3a5f 100%);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .container{
+    width:100%;
+    height:100%;
+    position:relative;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  canvas{
+    max-width:100%;
+    max-height:100%;
+    border-radius:12px;
+    box-shadow:0 10px 40px rgba(0,0,0,.4);
+  }
+  .hud{
+    position:absolute;
+    top:0;
+    left:0;
+    width:100%;
+    padding:15px;
+    pointer-events:none;
+    color:#fff;
+    font-weight:700;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
+  }
+  .hud-top{
+    display:flex;
+    justify-content:space-between;
+    font-size:18px;
+    margin-bottom:10px;
+  }
+  .oxygen-bar{
+    width:200px;
+    height:24px;
+    background:rgba(0,0,0,0.5);
+    border-radius:12px;
+    overflow:hidden;
+    border:2px solid #fff;
+  }
+  .oxygen-fill{
+    height:100%;
+    background:linear-gradient(to right, #ff6b6b, #ffd93d);
+    transition:width 0.3s;
+  }
+  .message{
+    position:absolute;
+    left:50%;
+    top:50%;
+    transform:translate(-50%,-50%);
+    background:rgba(0,0,0,0.85);
+    padding:30px 40px;
+    border-radius:15px;
+    color:#fff;
+    text-align:center;
+    pointer-events:auto;
+    min-width:300px;
+    backdrop-filter:blur(10px);
+  }
+  .message h1{
+    font-size:36px;
+    margin-bottom:15px;
+    color:#ffd93d;
+  }
+  .message p{
+    font-size:18px;
+    margin-bottom:20px;
+    line-height:1.6;
+  }
+  .message button{
+    padding:12px 30px;
+    font-size:18px;
+    background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border:none;
+    border-radius:50px;
+    color:white;
+    cursor:pointer;
+    transition:transform 0.2s;
+  }
+  .message button:hover{
+    transform:scale(1.05);
+  }
+  .instructions{
+    position:absolute;
+    bottom:15px;
+    left:50%;
+    transform:translateX(-50%);
+    color:rgba(255,255,255,0.8);
+    font-size:14px;
+    text-align:center;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.7);
+    pointer-events:none;
+  }
+  @media (max-width:640px){
+    .oxygen-bar{ width:150px; height:20px; }
+    .hud-top{ font-size:16px; }
+    .message h1{ font-size:28px; }
+    .message p{ font-size:16px; }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <canvas id="c"></canvas>
+    <div class="hud">
+      <div class="hud-top">
+        <div>💎 宝: <span id="treasure">0</span></div>
+        <div>深度: <span id="depth">0</span>m</div>
+      </div>
+      <div class="oxygen-bar">
+        <div class="oxygen-fill" id="oxygenFill"></div>
+      </div>
+    </div>
+    <div class="instructions">← → / A D で移動 | ↑ / W で浮上 | タップで操作</div>
+  </div>
+
+<script>
+/* 
+  Treasure Diver - 海底宝探しゲーム
+  
+  ゲームコンセプト:
+  - プレイヤーはダイバーとなり、海底に潜って宝を集める
+  - 酸素ゲージが尽きる前に水面に戻る必要がある
+  - 深く潜るほど貴重な宝が見つかるが、危険も増える
+  - 宝を集めたら浮上してスコアを確定させる（リスク管理）
+*/
+
+// =====================================
+// 定数設定
+// =====================================
+const CFG = {
+  baseWidth: 480,        // 基準画面幅
+  baseHeight: 720,       // 基準画面高さ
+  
+  player: {
+    w: 30,               // プレイヤー幅
+    h: 40,               // プレイヤー高さ
+    speed: 200,          // 横移動速度
+    sinkSpeed: 80,       // 自然沈下速度
+    swimUpSpeed: 180,    // 泳いで浮上する速度
+  },
+  
+  oxygen: {
+    max: 100,            // 最大酸素量
+    consumeRate: 8,      // 酸素消費速度（深度による増加あり）
+    depthMultiplier: 0.015  // 深度による消費増加率
+  },
+  
+  treasure: {
+    spawnInterval: 1200, // 宝の出現間隔（ms）
+    size: 20,            // 宝のサイズ
+    scoreBase: 10,       // 基本スコア
+    depthBonus: 2        // 深度100mごとのボーナス
+  },
+  
+  danger: {
+    spawnInterval: 2500, // 危険物の出現間隔（ms）
+    size: 35,            // 危険物のサイズ
+    speed: 60            // 横移動速度
+  },
+  
+  surface: {
+    y: 100               // 水面の高さ（画面上部から）
+  }
+};
+
+// =====================================
+// キャンバス設定
+// =====================================
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+let DPR = Math.max(1, window.devicePixelRatio || 1);
+let W = 0, H = 0, scale = 1;
+
+// UI要素
+const treasureEl = document.getElementById('treasure');
+const depthEl = document.getElementById('depth');
+const oxygenFillEl = document.getElementById('oxygenFill');
+
+// リサイズ処理
+function resize() {
+  DPR = Math.max(1, window.devicePixelRatio || 1);
+  
+  const maxW = window.innerWidth;
+  const maxH = window.innerHeight;
+  const targetRatio = CFG.baseWidth / CFG.baseHeight;
+  
+  let cssW, cssH;
+  const screenRatio = maxW / maxH;
+  
+  if (screenRatio > targetRatio) {
+    cssH = maxH;
+    cssW = Math.round(cssH * targetRatio);
+  } else {
+    cssW = maxW;
+    cssH = Math.round(cssW / targetRatio);
+  }
+  
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  canvas.width = Math.round(cssW * DPR);
+  canvas.height = Math.round(cssH * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  
+  W = cssW;
+  H = cssH;
+  scale = W / CFG.baseWidth;
+}
+window.addEventListener('resize', resize);
+
+// =====================================
+// ゲーム状態
+// =====================================
+let gameState = 'playing'; // 'playing', 'surfaced', 'gameover'
+let score = 0;
+let collectedTreasure = 0;
+let oxygen = CFG.oxygen.max;
+let cameraY = 0; // カメラのY座標（プレイヤーを追従）
+
+// プレイヤー
+const player = {
+  x: 0,
+  y: 0,
+  w: 0,
+  h: 0,
+  vx: 0,
+  vy: 0
+};
+
+// ゲームオブジェクト配列
+let treasures = [];
+let dangers = [];
+let particles = [];
+
+// タイマー
+let treasureSpawnTimer = 0;
+let dangerSpawnTimer = 0;
+let lastTime = 0;
+
+// 入力状態
+const input = {
+  left: false,
+  right: false,
+  up: false
+};
+
+// =====================================
+// ユーティリティ関数
+// =====================================
+const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+const rand = (min, max) => Math.floor(Math.random() * (min - max + 1)) + min;
+const randFloat = (min, max) => Math.random() * (max - min) + min;
+
+// 矩形の衝突判定
+function rectsOverlap(r1, r2) {
+  return !(r1.x + r1.w <= r2.x || 
+           r1.x >= r2.x + r2.w || 
+           r1.y + r1.h <= r2.y || 
+           r1.y >= r2.y + r2.h);
+}
+
+// =====================================
+// パーティクルクラス（水泡エフェクト）
+// =====================================
+class Bubble {
+  constructor(x, y, color = 'rgba(255,255,255,0.6)') {
+    this.x = x;
+    this.y = y;
+    this.size = randFloat(2, 5);
+    this.speedY = randFloat(-40, -80);
+    this.speedX = randFloat(-20, 20);
+    this.life = 1;
+    this.color = color;
+  }
+  
+  update(dt) {
+    this.x += this.speedX * dt;
+    this.y += this.speedY * dt;
+    this.life -= dt * 0.8;
+  }
+  
+  draw() {
+    ctx.globalAlpha = this.life;
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+// =====================================
+// 宝の生成
+// =====================================
+function spawnTreasure() {
+  const depth = Math.max(0, player.y - CFG.surface.y * scale);
+  const depthInMeters = Math.floor(depth / scale);
+  
+  // 深いほど出現しやすく、価値も高い
+  const value = CFG.treasure.scoreBase + Math.floor(depthInMeters / 100) * CFG.treasure.depthBonus;
+  
+  treasures.push({
+    x: randFloat(0, W - CFG.treasure.size * scale),
+    y: player.y + randFloat(H * 0.3, H * 0.8),
+    w: CFG.treasure.size * scale,
+    h: CFG.treasure.size * scale,
+    value: value,
+    wobble: Math.random() * Math.PI * 2
+  });
+}
+
+// =====================================
+// 危険物の生成（クラゲ）
+// =====================================
+function spawnDanger() {
+  const fromLeft = Math.random() < 0.5;
+  const direction = fromLeft ? 1 : -1;
+  
+  dangers.push({
+    x: fromLeft ? -CFG.danger.size * scale : W + CFG.danger.size * scale,
+    y: player.y + randFloat(H * 0.2, H * 0.7),
+    w: CFG.danger.size * scale,
+    h: CFG.danger.size * scale,
+    vx: direction * CFG.danger.speed * scale,
+    tentacles: Math.random() * Math.PI * 2
+  });
+}
+
+// =====================================
+// ゲームロジック更新
+// =====================================
+function update(timestamp) {
+  if (!lastTime) lastTime = timestamp;
+  const dtMs = Math.min(50, timestamp - lastTime);
+  const dt = dtMs / 1000;
+  lastTime = timestamp;
+  
+  // ゲームオーバーまたは浮上済みの場合は描画のみ
+  if (gameState !== 'playing') {
+    draw();
+    requestAnimationFrame(update);
+    return;
+  }
+  
+  // プレイヤーの移動
+  const moveDir = (input.left ? -1 : 0) + (input.right ? 1 : 0);
+  player.vx = moveDir * CFG.player.speed * scale;
+  player.x += player.vx * dt;
+  player.x = clamp(player.x, 0, W - player.w);
+  
+  // 浮上・沈下
+  if (input.up) {
+    player.vy = -CFG.player.swimUpSpeed * scale;
+  } else {
+    player.vy = CFG.player.sinkSpeed * scale;
+  }
+  player.y += player.vy * dt;
+  
+  // 水面判定（浮上成功）
+  if (player.y <= CFG.surface.y * scale) {
+    if (collectedTreasure > 0) {
+      score += collectedTreasure;
+      showMessage('surfaced');
+    }
+    player.y = CFG.surface.y * scale;
+  }
+  
+  // カメラ追従（プレイヤーを画面上部1/3に保つ）
+  const targetCameraY = Math.max(0, player.y - H * 0.3);
+  cameraY += (targetCameraY - cameraY) * 0.1;
+  
+  // 酸素消費（深度が深いほど消費が激しい）
+  const depth = Math.max(0, player.y - CFG.surface.y * scale);
+  const depthFactor = 1 + (depth / scale) * CFG.oxygen.depthMultiplier;
+  oxygen -= CFG.oxygen.consumeRate * depthFactor * dt;
+  
+  if (oxygen <= 0) {
+    oxygen = 0;
+    gameState = 'gameover';
+    showMessage('gameover');
+  }
+  
+  oxygenFillEl.style.width = (oxygen / CFG.oxygen.max * 100) + '%';
+  
+  // 深度表示
+  const depthInMeters = Math.floor(Math.max(0, depth) / scale);
+  depthEl.textContent = depthInMeters;
+  
+  // 宝の出現
+  treasureSpawnTimer += dtMs;
+  if (treasureSpawnTimer >= CFG.treasure.spawnInterval) {
+    treasureSpawnTimer = 0;
+    spawnTreasure();
+  }
+  
+  // 危険物の出現（深度50m以上）
+  if (depthInMeters >= 50) {
+    dangerSpawnTimer += dtMs;
+    if (dangerSpawnTimer >= CFG.danger.spawnInterval) {
+      dangerSpawnTimer = 0;
+      spawnDanger();
+    }
+  }
+  
+  // 宝の更新と衝突判定
+  treasures.forEach(t => {
+    t.wobble += dt * 3;
+    
+    if (rectsOverlap(player, t)) {
+      collectedTreasure += t.value;
+      treasureEl.textContent = collectedTreasure;
+      t.collected = true;
+      
+      // パーティクル生成
+      for (let i = 0; i < 8; i++) {
+        particles.push(new Bubble(t.x + t.w/2, t.y + t.h/2, '#ffd93d'));
+      }
+    }
+  });
+  treasures = treasures.filter(t => !t.collected && t.y > cameraY - 100 && t.y < cameraY + H + 100);
+  
+  // 危険物の更新と衝突判定
+  dangers.forEach(d => {
+    d.x += d.vx * dt;
+    d.tentacles += dt * 4;
+    
+    if (rectsOverlap(player, d)) {
+      gameState = 'gameover';
+      showMessage('gameover');
+    }
+  });
+  dangers = dangers.filter(d => d.x > -100 && d.x < W + 100 && d.y > cameraY - 100 && d.y < cameraY + H + 100);
+  
+  // パーティクル更新
+  particles.forEach(p => p.update(dt));
+  particles = particles.filter(p => p.life > 0);
+  
+  // 泳いでいる時の泡エフェクト
+  if (Math.random() < 0.3) {
+    particles.push(new Bubble(player.x + player.w/2, player.y + player.h));
+  }
+  
+  draw();
+  requestAnimationFrame(update);
+}
+
+// =====================================
+// 描画処理
+// =====================================
+function draw() {
+  // 背景（深度によって色が変わる）
+  const depth = Math.max(0, player.y - CFG.surface.y * scale);
+  const depthRatio = (H > 0) ? Math.min(1, depth / (H * 3)) : 0;
+  
+  const topAlpha = Math.max(0.5, 1 - depthRatio * 0.5);
+  const bottomAlpha = Math.max(0.7, 1 - depthRatio * 0.3);
+  
+  const topColor = `rgba(135, 206, 235, ${topAlpha})`;
+  const bottomColor = `rgba(30, 58, 95, ${bottomAlpha})`;
+  
+  const gradient = ctx.createLinearGradient(0, 0, 0, H);
+  gradient.addColorStop(0, topColor);
+  gradient.addColorStop(1, bottomColor);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, W, H);
+  
+  // 座標系を変換（カメラ追従）
+  ctx.save();
+  ctx.translate(0, -cameraY);
+  
+  // 水面ライン
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(0, CFG.surface.y * scale);
+  ctx.lineTo(W, CFG.surface.y * scale);
+  ctx.stroke();
+  
+  // 水面の波模様
+  ctx.fillStyle = 'rgba(135, 206, 235, 0.3)';
+  ctx.fillRect(0, 0, W, CFG.surface.y * scale);
+  
+  // 宝の描画
+  treasures.forEach(t => {
+    const wobbleOffset = Math.sin(t.wobble) * 3;
+    ctx.fillStyle = '#ffd93d';
+    ctx.strokeStyle = '#ff8c00';
+    ctx.lineWidth = 2;
+    
+    // ダイヤモンド形状
+    ctx.beginPath();
+    ctx.moveTo(t.x + t.w/2, t.y + wobbleOffset);
+    ctx.lineTo(t.x + t.w, t.y + t.h/2 + wobbleOffset);
+    ctx.lineTo(t.x + t.w/2, t.y + t.h + wobbleOffset);
+    ctx.lineTo(t.x, t.y + t.h/2 + wobbleOffset);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    
+    // 価値表示
+    ctx.fillStyle = '#fff';
+    ctx.font = `${10 * scale}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(t.value, t.x + t.w/2, t.y + t.h/2 + wobbleOffset + 4);
+  });
+  
+  // 危険物（クラゲ）の描画
+  dangers.forEach(d => {
+    // 本体
+    ctx.fillStyle = 'rgba(255, 107, 107, 0.7)';
+    ctx.beginPath();
+    ctx.arc(d.x + d.w/2, d.y + d.h/3, d.w/2, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // 触手
+    ctx.strokeStyle = 'rgba(255, 107, 107, 0.5)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 4; i++) {
+      const xOffset = (i - 1.5) * d.w/4;
+      const wave = Math.sin(d.tentacles + i) * 5;
+      ctx.beginPath();
+      ctx.moveTo(d.x + d.w/2 + xOffset, d.y + d.h/3);
+      ctx.lineTo(d.x + d.w/2 + xOffset + wave, d.y + d.h);
+      ctx.stroke();
+    }
+  });
+  
+  // パーティクル描画
+  particles.forEach(p => p.draw());
+  
+  // プレイヤー（ダイバー）の描画
+  ctx.fillStyle = '#4a90e2';
+  ctx.strokeStyle = '#2c5aa0';
+  ctx.lineWidth = 2;
+  
+  // 体
+  ctx.beginPath();
+  ctx.ellipse(player.x + player.w/2, player.y + player.h/2, player.w/2, player.h/2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  
+  // マスク
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.arc(player.x + player.w/2, player.y + player.h/3, player.w/3, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // マスクのガラス
+  ctx.fillStyle = 'rgba(200, 230, 255, 0.6)';
+  ctx.beginPath();
+  ctx.arc(player.x + player.w/2, player.y + player.h/3, player.w/4, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // フィン
+  ctx.fillStyle = '#e74c3c';
+  const finY = player.y + player.h * 0.8;
+  ctx.beginPath();
+  ctx.moveTo(player.x + player.w * 0.2, finY);
+  ctx.lineTo(player.x, finY + player.h * 0.3);
+  ctx.lineTo(player.x + player.w * 0.3, finY);
+  ctx.fill();
+  
+  ctx.beginPath();
+  ctx.moveTo(player.x + player.w * 0.8, finY);
+  ctx.lineTo(player.x + player.w, finY + player.h * 0.3);
+  ctx.lineTo(player.x + player.w * 0.7, finY);
+  ctx.fill();
+  
+  ctx.restore();
+}
+
+// =====================================
+// メッセージ表示
+// =====================================
+function showMessage(type) {
+  const existing = document.querySelector('.message');
+  if (existing) existing.remove();
+  
+  const msg = document.createElement('div');
+  msg.className = 'message';
+  
+  if (type === 'gameover') {
+    msg.innerHTML = `
+      <h1>ゲームオーバー</h1>
+      <p>最終スコア: ${score}点</p>
+      <p>酸素が尽きました...</p>
+      <button onclick="restart()">もう一度</button>
+    `;
+  } else if (type === 'surfaced') {
+    msg.innerHTML = `
+      <h1>浮上成功！</h1>
+      <p>獲得: ${collectedTreasure}点</p>
+      <p>合計スコア: ${score}点</p>
+      <button onclick="continueGame()">再び潜る</button>
+    `;
+  }
+  
+  document.body.appendChild(msg);
+}
+
+// =====================================
+// 入力処理
+// =====================================
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') input.left = true;
+  if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') input.right = true;
+  if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') input.up = true;
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') input.left = false;
+  if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') input.right = false;
+  if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') input.up = false;
+});
+
+// タッチ操作
+canvas.addEventListener('pointerdown', (e) => {
+  const r = canvas.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  const y = e.clientY - r.top;
+  
+  // 画面を3分割: 左=左移動、右=右移動、上=浮上
+  if (y < r.height / 3) {
+    input.up = true;
+  } else if (x < r.width / 2) {
+    input.left = true;
+  } else {
+    input.right = true;
+  }
+});
+
+canvas.addEventListener('pointerup', () => {
+  input.left = false;
+  input.right = false;
+  input.up = false;
+});
+
+canvas.addEventListener('pointercancel', () => {
+  input.left = false;
+  input.right = false;
+  input.up = false;
+});
+
+// =====================================
+// ゲーム制御
+// =====================================
+function restart() {
+  gameState = 'playing';
+  score = 0;
+  collectedTreasure = 0;
+  oxygen = CFG.oxygen.max;
+  cameraY = 0;
+  treasures = [];
+  dangers = [];
+  particles = [];
+  treasureSpawnTimer = 0;
+  dangerSpawnTimer = 0;
+  
+  player.x = W / 2 - player.w / 2;
+  player.y = CFG.surface.y * scale;
+  player.vx = 0;
+  player.vy = 0;
+  
+  treasureEl.textContent = '0';
+  depthEl.textContent = '0';
+  oxygenFillEl.style.width = '100%';
+  
+  const msg = document.querySelector('.message');
+  if (msg) msg.remove();
+  
+  lastTime = 0;
+  requestAnimationFrame(update);
+}
+
+function continueGame() {
+  gameState = 'playing';
+  collectedTreasure = 0;
+  oxygen = CFG.oxygen.max;
+  
+  player.y = CFG.surface.y * scale;
+  player.vx = 0;
+  player.vy = 0;
+  
+  treasureEl.textContent = '0';
+  oxygenFillEl.style.width = '100%';
+  
+  const msg = document.querySelector('.message');
+  if (msg) msg.remove();
+  
+  lastTime = 0;
+}
+
+// =====================================
+// 初期化
+// =====================================
+function init() {
+  resize();
+  
+  player.w = CFG.player.w * scale;
+  player.h = CFG.player.h * scale;
+  player.x = W / 2 - player.w / 2;
+  player.y = CFG.surface.y * scale;
+  
+  treasureEl.textContent = '0';
+  depthEl.textContent = '0';
+  
+  requestAnimationFrame(update);
+}
+
+init();
+</script>
+</body>
+</html>
