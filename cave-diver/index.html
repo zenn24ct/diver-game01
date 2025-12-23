@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Cave Diver</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box
+        }
+
+        html,
+        body {
+            height: 100%;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Kaku Gothic ProN";
+            overflow: hidden
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center
+        }
+
+        .container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center
+        }
+
+        canvas {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 12px;
+            box-shadow: 0 0 50px rgba(255, 100, 255, .5)
+        }
+
+        .hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 15px;
+            pointer-events: none;
+            color: #fff;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, .9)
+        }
+
+        .hud-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 16px
+        }
+
+        .fuel-bar,
+        .light-bar {
+            flex: 1;
+            max-width: 180px;
+            height: 22px;
+            background: rgba(0, 0, 0, 0.6);
+            border-radius: 11px;
+            overflow: hidden;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            margin-left: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, .3)
+        }
+
+        .fuel-fill {
+            height: 100%;
+            background: linear-gradient(to right, #ff6b6b, #ffd93d, #4ecdc4);
+            transition: width .1s linear
+        }
+
+        .light-fill {
+            height: 100%;
+            background: linear-gradient(to right, #4a90e2, #00d4ff, #a29bfe);
+            transition: width .1s linear
+        }
+
+        .message {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(20, 20, 40, .98);
+            padding: 35px 45px;
+            border-radius: 20px;
+            color: #fff;
+            text-align: center;
+            pointer-events: auto;
+            min-width: 340px;
+            border: 3px solid rgba(255, 100, 255, .6);
+            box-shadow: 0 0 30px rgba(255, 100, 255, .4)
+        }
+
+        .message h1 {
+            font-size: 36px;
+            margin-bottom: 15px;
+            color: #ff6bff;
+            text-shadow: 0 0 15px rgba(255, 100, 255, .8)
+        }
+
+        .message p {
+            font-size: 18px;
+            margin-bottom: 15px;
+            line-height: 1.6;
+            color: #e0e0e0
+        }
+
+        .message button {
+            padding: 14px 38px;
+            font-size: 18px;
+            background: linear-gradient(135deg, #ff6bff, #4ecdc4);
+            border: none;
+            border-radius: 50px;
+            color: #fff;
+            cursor: pointer;
+            margin: 8px;
+            transition: all .2s;
+            box-shadow: 0 4px 15px rgba(255, 100, 255, .3)
+        }
+
+        .message button:hover {
+            transform: scale(1.08);
+            box-shadow: 0 6px 20px rgba(255, 100, 255, .5)
+        }
+
+        .instructions {
+            position: absolute;
+            bottom: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, .85);
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            text-shadow: 1px 1px 4px #000;
+            background: rgba(0, 0, 0, .3);
+            padding: 8px 16px;
+            border-radius: 20px
+        }
+
+        @media (max-width:640px) {
+
+            .fuel-bar,
+            .light-bar {
+                max-width: 140px;
+                height: 20px
+            }
+
+            .hud-row {
+                font-size: 14px
+            }
+
+            .message h1 {
+                font-size: 28px
+            }
+
+            .message p {
+                font-size: 16px
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <canvas id="c"></canvas>
+        <div class="hud">
+            <div class="hud-row">
+                <div>💎 <span id="gems">0</span></div>
+            </div>
+            <div class="hud-row">
+                <div>📊 深度: <span id="depth">0</span>m</div>
+            </div>
+        </div>
+        <div class="instructions">← → ↑ ↓ / WASD で移動 | SPACE でライト切替 | タップで操作</div>
+    </div>
+
+    <script>
+        /*
+          Cave Racer - カラフル洞窟レースゲーム
+          
+          プレイヤーは反重力カーを操縦して洞窟を探検！
+        */
+
+        // =====================================
+        // 設定
+        // =====================================
+        const CFG = {
+            baseWidth: 480,
+            baseHeight: 720,
+
+            player: {
+                w: 36,
+                h: 24,
+                speed: 200,
+                jetpackPower: 280
+            },
+
+            fuel: {
+                max: 100,
+                consumeRate: 6,
+                jetpackRate: 15
+            },
+
+            light: {
+                max: 100,
+                consumeRate: 4,
+                radius: 160
+            },
+
+            cave: {
+                width: 300,
+                segmentHeight: 100,
+                minWidth: 140,
+                maxWidth: 380,
+                wobbleSpeed: 0.0018
+            },
+
+            gem: {
+                size: 18,
+                spawnInterval: 700,
+                scoreBase: 10,
+                depthBonus: 5
+            },
+
+            obstacle: {
+                size: 42,
+                spawnInterval: 1400,
+                speed: 40
+            },
+
+            exit: {
+                depth: 2000,
+                width: 120,
+                height: 70
+            }
+        };
+
+        const canvas = document.getElementById('c');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        let DPR = Math.max(1, window.devicePixelRatio || 1);
+        let W = 0, H = 0, scale = 1;
+
+        const gemsEl = document.getElementById('gems');
+        const depthEl = document.getElementById('depth');
+        const fuelFillEl = document.getElementById('fuelFill');
+        const lightFillEl = document.getElementById('lightFill');
+
+        function resize() {
+            DPR = Math.max(1, window.devicePixelRatio || 1);
+            const maxW = window.innerWidth, maxH = window.innerHeight;
+            const targetRatio = CFG.baseWidth / CFG.baseHeight;
+            let cssW, cssH;
+            if (maxW / maxH > targetRatio) { cssH = maxH; cssW = Math.round(cssH * targetRatio); }
+            else { cssW = maxW; cssH = Math.round(cssW / targetRatio); }
+            canvas.style.width = cssW + 'px'; canvas.style.height = cssH + 'px';
+            canvas.width = Math.round(cssW * DPR); canvas.height = Math.round(cssH * DPR);
+            ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+            W = cssW; H = cssH; scale = W / CFG.baseWidth;
+        }
+        window.addEventListener('resize', resize);
+
+        // =====================================
+        // ゲーム状態
+        // =====================================
+        let gameState = 'playing';
+        let score = 0;
+        let fuel = CFG.fuel.max;
+        let light = CFG.light.max;
+        let lightOn = true;
+        let cameraY = 0;
+        let frameCount = 0;
+        let startY = 0; // 開始地点を記録
+
+        const player = { x: 0, y: 0, w: 0, h: 0, vx: 0, vy: 0, health: 100 };
+        let caveSegments = [];
+        let gems = [];
+        let obstacles = [];
+        let particles = [];
+
+        let gemSpawnTimer = 0;
+        let obstacleSpawnTimer = 0;
+        let lastTime = 0;
+
+        const input = { left: false, right: false, up: false, down: false, light: false };
+
+        const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+        const randFloat = (a, b) => Math.random() * (b - a) + a;
+
+        // カラーパレット
+        const colors = {
+            cave: ['#6a4c93', '#1982c4', '#8ac926', '#ff595e', '#ffca3a'],
+            gems: ['#ff6bff', '#4ecdc4', '#ffd93d', '#ff6b9d', '#c44569']
+        };
+
+        // =====================================
+        // 洞窟の生成
+        // =====================================
+        function generateCaveSegment(y) {
+            const baseWidth = CFG.cave.width * scale;
+            const wobble = Math.sin(y * CFG.cave.wobbleSpeed) * 35 * scale;
+            const width = clamp(baseWidth + wobble, CFG.cave.minWidth * scale, CFG.cave.maxWidth * scale);
+            const centerX = W / 2;
+
+            // カラフルな色を選択
+            const colorIndex = Math.floor(y / (CFG.cave.segmentHeight * scale * 3)) % colors.cave.length;
+
+            return {
+                y: y,
+                leftWall: centerX - width / 2,
+                rightWall: centerX + width / 2,
+                height: CFG.cave.segmentHeight * scale,
+                color: colors.cave[colorIndex]
+            };
+        }
+
+        function initCave() {
+            caveSegments = [];
+            for (let i = 0; i < 30; i++) {
+                caveSegments.push(generateCaveSegment(i * CFG.cave.segmentHeight * scale));
+            }
+        }
+
+        // =====================================
+        // パーティクル
+        // =====================================
+        class Spark {
+            constructor(x, y, color = '#ffd93d') {
+                this.x = x; this.y = y; this.size = randFloat(2, 5);
+                this.vx = randFloat(-60, 60); this.vy = randFloat(-60, 60);
+                this.life = 1; this.color = color;
+            }
+            update(dt) { this.x += this.vx * dt; this.y += this.vy * dt; this.life -= dt * 1.8; }
+            draw() {
+                ctx.globalAlpha = this.life;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // =====================================
+        // 宝石生成
+        // =====================================
+        function spawnGem() {
+            const depth = Math.max(0, player.y - startY);
+            const depthInMeters = Math.floor(depth / scale);
+            const value = CFG.gem.scoreBase + Math.floor(depthInMeters / 200) * CFG.gem.depthBonus;
+
+            const segment = caveSegments.find(s => s.y > player.y + H * 0.3 && s.y < player.y + H);
+            if (!segment) return;
+
+            const margin = 35;
+            const x = randFloat(segment.leftWall + margin, segment.rightWall - margin);
+
+            // カラフルな宝石
+            const gemColor = colors.gems[Math.floor(Math.random() * colors.gems.length)];
+
+            gems.push({
+                x: x,
+                y: segment.y + randFloat(0, segment.height),
+                w: CFG.gem.size * scale,
+                h: CFG.gem.size * scale,
+                value: value,
+                glow: Math.random() * Math.PI * 2,
+                color: gemColor
+            });
+        }
+
+        // =====================================
+        // 障害物生成
+        // =====================================
+        function spawnObstacle() {
+            const segment = caveSegments.find(s => s.y > player.y + H * 0.3);
+            if (!segment) return;
+
+            obstacles.push({
+                x: randFloat(segment.leftWall + 20, segment.rightWall - CFG.obstacle.size * scale - 20),
+                y: player.y - 50,
+                w: CFG.obstacle.size * scale,
+                h: CFG.obstacle.size * scale,
+                vy: CFG.obstacle.speed * scale,
+                rotation: 0,
+                color: '#ff6b6b'
+            });
+        }
+
+        // =====================================
+        // 衝突判定
+        // =====================================
+        function rectsOverlap(r1, r2) {
+            return !(r1.x + r1.w <= r2.x || r1.x >= r2.x + r2.w || r1.y + r1.h <= r2.y || r1.y >= r2.y + r2.h);
+        }
+
+        function checkCaveCollision() {
+            const segment = caveSegments.find(s => player.y >= s.y && player.y < s.y + s.height);
+            if (!segment) return false;
+
+            return player.x < segment.leftWall || player.x + player.w > segment.rightWall;
+        }
+
+        // =====================================
+        // 更新
+        // =====================================
+        function update(timestamp) {
+            if (!lastTime) lastTime = timestamp;
+            const dtMs = Math.min(50, timestamp - lastTime);
+            const dt = dtMs / 1000;
+            lastTime = timestamp;
+            frameCount++;
+
+            if (gameState !== 'playing') { draw(); requestAnimationFrame(update); return; }
+
+            // 移動
+            const moveX = (input.left ? -1 : 0) + (input.right ? 1 : 0);
+            const moveY = (input.up ? -1 : 0) + (input.down ? 1 : 0);
+
+            player.vx = moveX * CFG.player.speed * scale;
+            player.vy = moveY * CFG.player.jetpackPower * scale;
+
+            // 重力
+            player.vy += 140 * scale * dt;
+
+            player.x += player.vx * dt;
+            player.y += player.vy * dt;
+
+            player.x = clamp(player.x, 0, W - player.w);
+
+            // カメラ追従
+            // カメラ追従とは、？調べる！
+            const targetCam = Math.max(0, player.y - H * 0.35);
+            cameraY += (targetCam - cameraY) * 0.15;
+
+
+            // 深度表示（開始地点からの差分）
+            const actualDepth = Math.max(0, Math.floor((player.y - startY) / scale));
+            depthEl.textContent = actualDepth;
+
+            // 洞窟セグメント生成
+            while (caveSegments[caveSegments.length - 1].y < cameraY + H * 2) {
+                const lastY = caveSegments[caveSegments.length - 1].y;
+                caveSegments.push(generateCaveSegment(lastY + CFG.cave.segmentHeight * scale));
+            }
+            caveSegments = caveSegments.filter(s => s.y > cameraY - H);
+
+            // 宝石スポーン
+            gemSpawnTimer += dtMs;
+            if (gemSpawnTimer >= CFG.gem.spawnInterval) {
+                gemSpawnTimer = 0;
+                spawnGem();
+            }
+
+            // 障害物スポーン
+            if (actualDepth > 300) {
+                obstacleSpawnTimer += dtMs;
+                if (obstacleSpawnTimer >= CFG.obstacle.spawnInterval) {
+                    obstacleSpawnTimer = 0;
+                    spawnObstacle();
+                }
+            }
+
+            // 宝石取得
+            gems.forEach(g => {
+                g.glow += dt * 4;
+                if (rectsOverlap(player, g)) {
+                    score += g.value;
+                    gemsEl.textContent = score;
+                    g.collected = true;
+                    for (let i = 0; i < 12; i++) particles.push(new Spark(g.x + g.w / 2, g.y + g.h / 2, g.color));
+                }
+            });
+            gems = gems.filter(g => !g.collected && g.y > cameraY - 100 && g.y < cameraY + H + 100);
+
+            // 障害物更新
+            obstacles.forEach(o => {
+                o.y += o.vy * dt;
+                o.rotation += dt * 2.5;
+                if (rectsOverlap(player, o)) {
+                    player.health -= 50;
+                    o.hit = true;
+                    for (let i = 0; i < 18; i++) particles.push(new Spark(o.x + o.w / 2, o.y + o.h / 2, o.color));
+                }
+            });
+            obstacles = obstacles.filter(o => !o.hit && o.y < cameraY + H + 100);
+
+            // 壁衝突
+            if (checkCaveCollision()) {
+                player.health -= 25 * dt;
+                if (frameCount % 3 === 0) {
+                    particles.push(new Spark(player.x + player.w / 2, player.y + player.h / 2, '#ff8e53'));
+                }
+            }
+
+            // パーティクル更新
+            particles.forEach(p => p.update(dt));
+            particles = particles.filter(p => p.life > 0);
+
+            // エンジンパーティクル
+            if ((input.up || input.down) && frameCount % 2 === 0) {
+                particles.push(new Spark(player.x + player.w / 2, player.y + player.h, '#4ecdc4'));
+            }
+
+            // ゲームオーバー判定
+            if (player.health <= 0 || actualDepth > CFG.exit.depth + 300) {
+                gameState = 'gameover';
+                showMessage('gameover');
+            }
+
+            // 出口到達
+            const exitY = startY + CFG.exit.depth * scale;
+            if (player.y >= exitY && Math.abs(player.x + player.w / 2 - W / 2) < CFG.exit.width * scale / 2) {
+                gameState = 'cleared';
+                showMessage('cleared');
+            }
+
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        // =====================================
+        // 描画
+        // =====================================
+        function draw() {
+            // 背景グラデーション
+            const bgGradient = ctx.createLinearGradient(0, 0, 0, H);
+            bgGradient.addColorStop(0, '#1a1a2e');
+            bgGradient.addColorStop(1, '#16213e');
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, W, H);
+
+            ctx.save();
+            ctx.translate(0, -cameraY);
+
+            // 洞窟壁（カラフル）
+            caveSegments.forEach(seg => {
+                // 左壁
+                const leftGrad = ctx.createLinearGradient(0, seg.y, seg.leftWall, seg.y);
+                leftGrad.addColorStop(0, seg.color);
+                leftGrad.addColorStop(1, 'rgba(0,0,0,0.3)');
+                ctx.fillStyle = leftGrad;
+                ctx.fillRect(0, seg.y, seg.leftWall, seg.height);
+
+                // 右壁
+                const rightGrad = ctx.createLinearGradient(seg.rightWall, seg.y, W, seg.y);
+                rightGrad.addColorStop(0, 'rgba(0,0,0,0.3)');
+                rightGrad.addColorStop(1, seg.color);
+                ctx.fillStyle = rightGrad;
+                ctx.fillRect(seg.rightWall, seg.y, W - seg.rightWall, seg.height);
+
+                // エッジライン
+                ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(seg.leftWall, seg.y);
+                ctx.lineTo(seg.leftWall, seg.y + seg.height);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(seg.rightWall, seg.y);
+                ctx.lineTo(seg.rightWall, seg.y + seg.height);
+                ctx.stroke();
+            });
+
+            // 出口表示
+            const exitY = startY + CFG.exit.depth * scale;
+            if (exitY > cameraY - 100 && exitY < cameraY + H + 100) {
+                const exitGrad = ctx.createLinearGradient(W / 2 - CFG.exit.width * scale / 2, exitY, W / 2 + CFG.exit.width * scale / 2, exitY);
+                exitGrad.addColorStop(0, '#4ecdc4');
+                exitGrad.addColorStop(0.5, '#ff6bff');
+                exitGrad.addColorStop(1, '#4ecdc4');
+                ctx.fillStyle = exitGrad;
+                ctx.fillRect(W / 2 - CFG.exit.width * scale / 2, exitY, CFG.exit.width * scale, CFG.exit.height * scale);
+
+                ctx.fillStyle = '#fff';
+                ctx.font = `bold ${16 * scale}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = '#ff6bff';
+                ctx.fillText('🏁 EXIT 🏁', W / 2, exitY + 40 * scale);
+                ctx.shadowBlur = 0;
+            }
+
+            // ライトエフェクト
+            if (lightOn && light > 0) {
+                ctx.save();
+                ctx.globalCompositeOperation = 'multiply';
+                const lightIntensity = light / CFG.light.max;
+                const gradient = ctx.createRadialGradient(
+                    player.x + player.w / 2, player.y + player.h / 2, CFG.light.radius * scale * lightIntensity,
+                    player.x + player.w / 2, player.y + player.h / 2, 0
+                );
+                gradient.addColorStop(0, 'rgba(0,0,0,0.9)');
+                gradient.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, cameraY, W, H);
+                ctx.restore();
+            } else {
+                ctx.fillStyle = 'rgba(0,0,0,0.8)';
+                ctx.fillRect(0, cameraY, W, H);
+            }
+
+            // 宝石（カラフル、グロー効果）
+            gems.forEach(g => {
+                const glowSize = Math.sin(g.glow) * 2 + 4;
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = g.color;
+                ctx.fillStyle = g.color;
+                ctx.beginPath();
+                ctx.arc(g.x + g.w / 2, g.y + g.h / 2, g.w / 2 + glowSize, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 内側のハイライト
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = 'rgba(255,255,255,0.6)';
+                ctx.beginPath();
+                ctx.arc(g.x + g.w / 2 - 2, g.y + g.h / 2 - 2, g.w / 4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            });
+
+            // 障害物
+            obstacles.forEach(o => {
+                ctx.save();
+                ctx.translate(o.x + o.w / 2, o.y + o.h / 2);
+                ctx.rotate(o.rotation);
+
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = o.color;
+                ctx.fillStyle = o.color;
+                ctx.fillRect(-o.w / 2, -o.h / 2, o.w, o.h);
+
+                ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(-o.w / 2, -o.h / 2, o.w, o.h);
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            });
+
+            // パーティクル
+            particles.forEach(p => p.draw());
+
+            // プレイヤー（車のデザイン）
+            ctx.save();
+
+            // 車体のシャドウ
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = 'rgba(255,100,255,0.6)';
+
+            // 車体（メインボディ）
+            const carGrad = ctx.createLinearGradient(player.x, player.y, player.x, player.y + player.h);
+            carGrad.addColorStop(0, '#ff6bff');
+            carGrad.addColorStop(0.5, '#c44569');
+            carGrad.addColorStop(1, '#ff6bff');
+            ctx.fillStyle = carGrad;
+            ctx.fillRect(player.x + 4, player.y + 4, player.w - 8, player.h - 4);
+
+            // コックピット（窓）
+            ctx.fillStyle = 'rgba(100,200,255,0.7)';
+            ctx.fillRect(player.x + 8, player.y + 6, player.w - 16, player.h * 0.4);
+
+            // フロントライト
+            ctx.fillStyle = '#ffd93d';
+            ctx.beginPath();
+            ctx.arc(player.x + 6, player.y + player.h / 2, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(player.x + player.w - 6, player.y + player.h / 2, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            // ホイール（反重力エフェクト）
+            ctx.fillStyle = '#4ecdc4';
+            ctx.strokeStyle = '#00d4ff';
+            ctx.lineWidth = 2;
+            const wheelY = player.y + player.h - 2;
+
+            // 左ホイール
+            ctx.beginPath();
+            ctx.arc(player.x + 8, wheelY, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // 右ホイール
+            ctx.beginPath();
+            ctx.arc(player.x + player.w - 8, wheelY, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // スポイラー
+            ctx.fillStyle = '#ff8e53';
+            ctx.fillRect(player.x + player.w - 4, player.y + 2, 3, player.h * 0.6);
+
+            // エンジン噴射エフェクト
+            if (input.up || input.down) {
+                const flameGrad = ctx.createLinearGradient(player.x + player.w / 2, player.y + player.h, player.x + player.w / 2, player.y + player.h + 12);
+                flameGrad.addColorStop(0, 'rgba(255,200,100,0.9)');
+                flameGrad.addColorStop(1, 'rgba(255,100,100,0)');
+                ctx.fillStyle = flameGrad;
+
+                const flameHeight = 8 + Math.random() * 4;
+                ctx.beginPath();
+                ctx.moveTo(player.x + player.w * 0.3, player.y + player.h);
+                ctx.lineTo(player.x + player.w * 0.35, player.y + player.h + flameHeight);
+                ctx.lineTo(player.x + player.w * 0.4, player.y + player.h);
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.moveTo(player.x + player.w * 0.6, player.y + player.h);
+                ctx.lineTo(player.x + player.w * 0.65, player.y + player.h + flameHeight);
+                ctx.lineTo(player.x + player.w * 0.7, player.y + player.h);
+                ctx.fill();
+            }
+
+            ctx.shadowBlur = 0;
+            ctx.restore();
+
+            ctx.restore();
+
+            // 体力バー（カラフル）
+            const healthBarY = H - 35;
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(10, healthBarY, 220, 24);
+
+            const healthGrad = ctx.createLinearGradient(10, healthBarY, 230, healthBarY);
+            if (player.health > 66) {
+                healthGrad.addColorStop(0, '#4ecdc4');
+                healthGrad.addColorStop(1, '#a29bfe');
+            } else if (player.health > 33) {
+                healthGrad.addColorStop(0, '#ffd93d');
+                healthGrad.addColorStop(1, '#ff8e53');
+            } else {
+                healthGrad.addColorStop(0, '#ff6b6b');
+                healthGrad.addColorStop(1, '#c44569');
+            }
+            ctx.fillStyle = healthGrad;
+            ctx.fillRect(10, healthBarY, 220 * (player.health / 100), 24);
+
+            ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(10, healthBarY, 220, 24);
+
+            // 体力テキスト
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`HP: ${Math.floor(player.health)}%`, 120, healthBarY + 16);
+        }
+
+        // =====================================
+        // メッセージ
+        // =====================================
+        function showMessage(type) {
+            const existing = document.querySelector('.message'); if (existing) existing.remove();
+            const msg = document.createElement('div'); msg.className = 'message';
+
+            if (type === 'gameover') {
+                msg.innerHTML = `<h1>💥 探検失敗</h1><p>最終スコア: <strong>${score}点</strong></p><p>到達深度: <strong>${Math.floor((player.y - startY) / scale)}m</strong></p><button onclick="restart()">🔄 もう一度</button>`;
+            } else if (type === 'cleared') {
+                msg.innerHTML = `<h1>🎉 脱出成功！</h1><p>最終スコア: <strong>${score}点</strong></p><p style="color:#4ecdc4">おめでとうございます！</p><button onclick="restart()">🔄 もう一度</button>`;
+            }
+
+            document.body.appendChild(msg);
+        }
+
+        // =====================================
+        // 入力
+        // =====================================
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') input.left = true;
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') input.right = true;
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') input.up = true;
+            if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') input.down = true;
+            if (e.key === ' ' && !input.light) { input.light = true; lightOn = !lightOn; }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') input.left = false;
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') input.right = false;
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') input.up = false;
+            if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') input.down = false;
+            if (e.key === ' ') input.light = false;
+        });
+
+        canvas.addEventListener('pointerdown', (e) => {
+            const r = canvas.getBoundingClientRect();
+            const x = e.clientX - r.left, y = e.clientY - r.top;
+
+            if (y < r.height * 0.3) input.up = true;
+            else if (y > r.height * 0.7) input.down = true;
+
+            if (x < r.width * 0.3) input.left = true;
+            else if (x > r.width * 0.7) input.right = true;
+            else lightOn = !lightOn;
+        });
+
+        canvas.addEventListener('pointerup', () => { input.left = false; input.right = false; input.up = false; input.down = false; });
+        canvas.addEventListener('pointercancel', () => { input.left = false; input.right = false; input.up = false; input.down = false; });
+
+        // =====================================
+        // 制御
+        // =====================================
+        function restart() {
+            gameState = 'playing'; score = 0; fuel = CFG.fuel.max; light = CFG.light.max; lightOn = true; cameraY = 0; frameCount = 0;
+            gems = []; obstacles = []; particles = []; gemSpawnTimer = 0; obstacleSpawnTimer = 0;
+            player.x = W / 2 - player.w / 2; player.y = 100 * scale; player.vx = 0; player.vy = 0; player.health = 100;
+            startY = player.y; // 開始地点を記録
+            gemsEl.textContent = '0'; depthEl.textContent = '0';
+            fuelFillEl.style.width = '100%'; lightFillEl.style.width = '100%';
+            initCave();
+            const m = document.querySelector('.message'); if (m) m.remove();
+            lastTime = 0; requestAnimationFrame(update);
+        }
+
+        function init() {
+            resize();
+            player.w = CFG.player.w * scale; player.h = CFG.player.h * scale;
+            player.x = W / 2 - player.w / 2; player.y = 100 * scale;
+            startY = player.y; // 開始地点を記録
+            initCave();
+            gemsEl.textContent = '0'; depthEl.textContent = '0';
+            requestAnimationFrame(update);
+        }
+        init();
+    </script>
+</body>
+
+</html>
