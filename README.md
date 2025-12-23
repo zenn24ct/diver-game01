@@ -6,23 +6,23 @@
 
 ### 収録ゲーム
 #### Normal Diver
-[リンクはこちら](hhttps://zenn24ct.github.io/diver-game01/normal-diver)
+[リンクはこちら](https://zenn24ct.github.io/diver-game01/normal-diver)
 - 壁の隙間を通り抜けるシンプルな回避ゲーム
 
 #### Neon Diver
-[リンクはこちら](hhttps://zenn24ct.github.io/diver-game01/neon-diver)
+[リンクはこちら](https://zenn24ct.github.io/diver-game01/neon-diver)
 - ネオン演出付きの高速回避ゲーム
 
 #### Flower Diver
-[リンクはこちら](hhttps://zenn24ct.github.io/diver-game01/flower-diver)
+[リンクはこちら](https://zenn24ct.github.io/diver-game01/flower-diver)
 - 花モチーフのカジュアル回避ゲーム
 
 #### Treasure Diver
-[リンクはこちら](hhttps://zenn24ct.github.io/diver-game01/treasure-diver)
+[リンクはこちら](https://zenn24ct.github.io/diver-game01/treasure-diver)
 - 酸素を管理しながら宝を集めるダイビングゲーム
 
 #### Cave Diver
-[リンクはこちら](hhttps://zenn24ct.github.io/diver-game01/cave-diver)
+[リンクはこちら](https://zenn24ct.github.io/diver-game01/cave-diver)
 - 洞窟を進む探索・レース系ゲーム
 
 ##### 操作方法（共通）
