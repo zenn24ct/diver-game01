@@ -1,36 +1,32 @@
-## 🕹️ Diverゲーム
+## Diver Game Collection
+- ミニゲーム集
+- 現在5本のゲームを収録
+- HTML / CSS / JavaScript のみで実装
+- 今後もゲームを追加予定
 
-これは、左右移動だけで遊べるシンプルな回避系アクションゲームです。
-プレイヤーは落下しながら、上下から迫る壁の隙間や横から飛んでくるブロックを避けてスコアを伸ばします。
+### 収録ゲーム
+#### Normal Diver
+[リンクはこちら](hhttps://zenn24ct.github.io/diver-game01/normal-diver)
+- 壁の隙間を通り抜けるシンプルな回避ゲーム
 
-## 🎮 遊び方
+#### Neon Diver
+[リンクはこちら](hhttps://zenn24ct.github.io/diver-game01/neon-diver)
+- ネオン演出付きの高速回避ゲーム
 
-左右キー または 画面左右のタップ で移動
+#### Flower Diver
+[リンクはこちら](hhttps://zenn24ct.github.io/diver-game01/flower-diver)
+- 花モチーフのカジュアル回避ゲーム
 
-壁の 穴 を通過するとスコア +1
+#### Treasure Diver
+[リンクはこちら](hhttps://zenn24ct.github.io/diver-game01/treasure-diver)
+- 酸素を管理しながら宝を集めるダイビングゲーム
 
-障害物（壁・ブロック）に当たると Game Over
+#### Cave Diver
+[リンクはこちら](hhttps://zenn24ct.github.io/diver-game01/cave-diver)
+- 洞窟を進む探索・レース系ゲーム
 
-Game Over 時は、画面をタップまたはクリックで リトライ
-
-## ✨ 特徴
-
-シンプル操作（左右移動のみ）
-
-「壁が迫ってくる」テンポの良い避けゲー
-
-スコアによって壁の隙間が徐々に縮む難易度上昇
-
-ローカルストレージで ベストスコア保存
-
-画像アセットが読み込めない環境でも自動で簡易描画へフォールバック
-
-## ⚙️ 技術
-
-HTML / CSS / JavaScript（Canvas 2D）
-
-requestAnimationFrame によるゲームループ
-
-LocalStorage によるベストスコア保存
-
-タッチ・キーボード両対応
+##### 操作方法（共通）
+- ← → / A D：左右移動
+- ↑ ↓ / W S：上下移動（対応ゲームのみ）
+- タップ操作対応（スマホ可）
+- ゲームオーバー時はタップ / クリックでリトライ
