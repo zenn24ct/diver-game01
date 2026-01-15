@@ -1,525 +1,307 @@
 <!doctype html>
 <html lang="ja">
+
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Diverゲーム</title>
-<style>
-  :root{
-    --bg1:#041018;
-    --bg2:#071621;
-    --accent:#7be7ff;
-    --muted: rgba(255,255,255,0.85);
-  }
-  html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,"Hiragino Kaku Gothic ProN";}
-  body{background:linear-gradient(180deg,var(--bg1),var(--bg2));display:flex;align-items:center;justify-content:center;padding:18px;color:var(--muted)}
-  .container{width:min(960px,96vw);max-width:720px}
-  canvas{width:100%;height:auto;border-radius:12px;display:block;box-shadow:0 14px 40px rgba(0,0,0,.6);background:#05121a}
-  .overlay{position:relative;margin-top:-100%;pointer-events:none;height:0;}
-  .hud{position:relative;pointer-events:none;width:100%;}
-  .hud .score{position:absolute;left:12px;top:12px;font-weight:700;background:rgba(0,0,0,0.25);backdrop-filter: blur(2px);padding:6px 10px;border-radius:8px;pointer-events:auto;}
-  .hud .hint{position:absolute;right:12px;top:12px;font-size:13px;opacity:.9;background:rgba(0,0,0,0.18);padding:6px 10px;border-radius:8px;}
-  .centerMsg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:auto;color:#fff;padding:14px 18px;border-radius:10px;background:linear-gradient(180deg,rgba(0,0,0,0.3),rgba(0,0,0,0.5));}
-  .centerMsg small{display:block;opacity:.85;margin-top:8px;font-size:13px}
-  @media (max-width:640px){ .centerMsg{font-size:16px;padding:12px} }
-</style
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Trail Dodge</title>
+    <style>
+        :root {
+            --bg: #060608;
+            --muted: #999;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto;
+            background: var(--bg);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center
+        }
+
+        .wrap {
+            width: min(900px, 95vw);
+            aspect-ratio: 16/9;
+            position: relative
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, .6)
+        }
+
+        .ui {
+            position: absolute;
+            left: 12px;
+            top: 12px;
+            color: var(--muted);
+            z-index: 3
+        }
+
+        .center {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            pointer-events: none;
+            z-index: 4
+        }
+
+        .overlay {
+            background: rgba(0, 0, 0, 0.45);
+            padding: 14px 18px;
+            border-radius: 10px;
+            text-align: center;
+            pointer-events: auto
+        }
+
+        button {
+            margin-top: 10px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 0;
+            cursor: pointer
+        }
+    </style>
 </head>
+
 <body>
-  <div class="container">
-    <canvas id="c"></canvas>
-    <div class="overlay" id="overlay">
-      <div class="hud" id="hud">
-        <div class="score" id="score">0</div>
-        
-      </div>
+    <div class="wrap">
+        <canvas id="c"></canvas>
+        <div class="ui" id="hud">Score: 0</div>
+        <div class="center" id="overlay" style="display:grid">
+            <div class="overlay" id="overlayBox">
+                <div id="overlayTitle">Trail Dodge</div>
+                <div id="overlayScore">Score: 0</div>
+                <button id="restart">Start</button>
+            </div>
+        </div>
     </div>
-  </div>
 
-<script>
-/*
-  Pixel Diver
-  - 主要構成:
-    * CFG: ゲーム設定
-    * 描画・更新ループ (update, draw)
-    * 衝突判定、スポーン、パーティクル、リトライロジック
-    * シンプルな Game Over 表示
-  - 必要なら onRetry (restart) の振る舞いをカスタムできる
-*/
+    <script>
+        /* シンプル化された Trail Dodge */
 
-/* --------------------
-   設定
-   -------------------- */
-const CFG = {
-  baseWidth: 480,
-  aspect: 9/16,
-  player: { w: 48, h: 36, speed: 360, accel: 18, friction: 14 },
-  wall: { thickness: 28, baseSpeed: 160 },
-  spawnBase: 1100,          // 基本の生成間隔 (ms)
-  spawnMin: 600,            // 最小間隔 (ms)
-  holeMin: 64, holeMax: 170,
-  gapShrinkRate: 0.45,
-  hitboxShrink: 0.78,
-  particleCount: 10,
-  minVerticalGapBase: 150,  // 壁同士の最小垂直間隔 (px)
-  blockChance: 0.08         // ブロック出現率（低め）
-};
+        /* --- DOM / canvas --- */
+        const canvas = document.getElementById('c');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const hud = document.getElementById('hud');
+        const overlay = document.getElementById('overlay');
+        const overlayTitle = document.getElementById('overlayTitle');
+        const overlayScore = document.getElementById('overlayScore');
+        const restartBtn = document.getElementById('restart');
 
-/* --------------------
-   DOM / Canvas / グローバル
-   -------------------- */
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d', { alpha: false });
+        let DPR = Math.max(1, window.devicePixelRatio || 1);
+        let W = 800, H = 450;
+        function resize() {
+            DPR = Math.max(1, window.devicePixelRatio || 1);
+            W = canvas.clientWidth; H = canvas.clientHeight;
+            canvas.width = Math.floor(W * DPR);
+            canvas.height = Math.floor(H * DPR);
+            ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        }
+        window.addEventListener('resize', resize);
+        resize();
 
-let DPR = Math.max(1, window.devicePixelRatio || 1);
-let W=0,H=0,scale=1;
+        /* --- ゲーム状態 --- */
+        let running = false;
+        let startTime = 0, lastTime = 0;
+        let score = 0;
 
-const scoreEl = document.getElementById('score');
-const hud = document.getElementById('hud');
+        /* プレイヤー */
+        const player = { x: W / 2, y: H * 0.8, r: 14 };
 
-let last=0, running=true, score=0, best=0;
-let walls = [];
-let blocks = [];
-let particles = [];
-let spawnTimer = 0;
+        /* トレイル */
+        const trail = [];
+        const TRAIL_MAX = 28;
 
-const player = { x:0, y:0, w:CFG.player.w, h:CFG.player.h, vx:0, targetDir:0 };
-const input = { left:false, right:false };
-const assets = { playerImg:null, bgImg:null, usePlayerImg:false, useBgImg:false };
+        /* 敵 */
+        const enemies = [];
+        let spawnTimer = 0;
+        const BASE_SPAWN = 0.25; // 秒
 
-/* --------------------
-   初期化 / リサイズ
-   -------------------- */
-function resize(){
-  DPR = Math.max(1, window.devicePixelRatio || 1);
-  const containerW = Math.min(document.querySelector('.container').clientWidth, CFG.baseWidth*1.9);
-  const cssW = Math.floor(containerW);
-  const cssH = Math.max(320, Math.round(cssW / CFG.aspect));
-  canvas.style.width = cssW + 'px';
-  canvas.style.height = cssH + 'px';
-  canvas.width = Math.round(cssW * DPR);
-  canvas.height = Math.round(cssH * DPR);
-  ctx.setTransform(DPR,0,0,DPR,0,0);
-  W = cssW; H = cssH;
-  scale = W / CFG.baseWidth;
-  // スタート地点（上寄せ）
-  player.y = Math.round(H - 180 * scale);
-  player.w = Math.round(CFG.player.w * scale);
-  player.h = Math.round(CFG.player.h * scale);
-}
-window.addEventListener('resize', resize);
+        /* ポインタ入力 */
+        const pointer = { x: player.x, y: player.y, down: false };
+        function setPointer(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            pointer.x = clientX - rect.left;
+            pointer.y = clientY - rect.top;
+        }
+        canvas.addEventListener('mousemove', e => setPointer(e.clientX, e.clientY));
+        canvas.addEventListener('touchmove', e => { e.preventDefault(); const t = e.touches[0]; setPointer(t.clientX, t.clientY); }, { passive: false });
+        canvas.addEventListener('pointerdown', e => { setPointer(e.clientX, e.clientY); pointer.down = true; });
+        canvas.addEventListener('pointerup', () => pointer.down = false);
 
-/* --------------------
-   ベストスコア保存
-   -------------------- */
-function loadBest(){ try{ best = parseInt(localStorage.getItem('pixel-diver-best')||'0',10)||0 }catch(e){ best=0 } }
-function saveBest(){ try{ localStorage.setItem('pixel-diver-best', String(best)); }catch(e){} }
+        /* --- 敵生成（簡潔） --- */
+        function spawnEnemy() {
+            const size = 8 + Math.random() * 30;
+            const side = Math.floor(Math.random() * 4);
+            let x, y;
+            if (side === 0) { x = Math.random() * W; y = -size - 6; }
+            else if (side === 1) { x = W + size + 6; y = Math.random() * H; }
+            else if (side === 2) { x = Math.random() * W; y = H + size + 6; }
+            else { x = -size - 6; y = Math.random() * H; }
 
-/* --------------------
-   アセット読み込み（任意）
-   -------------------- */
-function tryLoadAssets(){
-  const p = new Image(); p.src = 'assets/player.png';
-  p.onload = ()=>{ assets.playerImg = p; assets.usePlayerImg = true; };
-  p.onerror = ()=>{ assets.usePlayerImg = false; };
-  const b = new Image(); b.src = 'assets/bg.png';
-  b.onload = ()=>{ assets.bgImg = b; assets.useBgImg = true; };
-  b.onerror = ()=>{ assets.useBgImg = false; };
-}
-tryLoadAssets();
+            const dirToCenter = Math.atan2(H / 2 - y, W / 2 - x);
+            const ang = dirToCenter + (Math.random() - 0.5) * Math.PI * 0.9;
+            const speed = 40 + Math.random() * 220; // px/sec
+            enemies.push({
+                x, y,
+                vx: Math.cos(ang) * speed,
+                vy: Math.sin(ang) * speed,
+                r: size,
+                type: ['circle', 'square', 'triangle'][Math.floor(Math.random() * 3)],
+                color: ['#f25f5c', '#ffd166', '#06d6a0', '#118ab2', '#8e44ad', '#f97316'][Math.floor(Math.random() * 6)]
+            });
+        }
 
-/* --------------------
-   ユーティリティ
-   -------------------- */
-const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-const rand=(a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+        /* --- 衝突（円同士） --- */
+        function collided(a, b) {
+            const dx = a.x - b.x, dy = a.y - b.y;
+            return dx * dx + dy * dy < (a.r + b.r) * (a.r + b.r);
+        }
 
-function minVerticalGap(){
-  return Math.round(CFG.minVerticalGapBase * scale);
-}
+        /* --- 描画補助（敵の形） --- */
+        function drawEnemy(e) {
+            ctx.save();
+            ctx.translate(e.x, e.y);
+            ctx.fillStyle = e.color;
+            if (e.type === 'circle') {
+                ctx.beginPath(); ctx.arc(0, 0, e.r, 0, Math.PI * 2); ctx.fill();
+            } else if (e.type === 'square') {
+                ctx.fillRect(-e.r, -e.r, e.r * 2, e.r * 2);
+            } else {
+                const h = e.r * 1.6;
+                ctx.beginPath(); ctx.moveTo(0, -h / 2); ctx.lineTo(e.r, h / 2); ctx.lineTo(-e.r, h / 2); ctx.closePath(); ctx.fill();
+            }
+            ctx.restore();
+        }
 
-/* --------------------
-   スポーン（壁・ブロック）
-   - 壁同士が近すぎないようチェックしてから追加する
-   -------------------- */
-function spawn(){
-  // 直前の壁がまだ近ければスキップ
-  if (walls.length > 0){
-    const lastWall = walls[walls.length - 1];
-    const minGap = minVerticalGap();
-    if (lastWall.y > H - minGap){
-      return false;
-    }
-  }
+        /* --- メインループ --- */
+        function loop(ts) {
+            if (!running) return;
+            const dt = Math.min(0.05, (ts - lastTime) / 1000);
+            lastTime = ts;
 
-  const r = Math.random();
-  let pick;
-  if (r < 0.5) pick = 'normal';
-  else if (r < 0.8) pick = 'wobble';
-  else if (r < 0.96) pick = 'narrow';
-  else pick = 'block';
+            // スコアは生存秒数
+            score = (ts - startTime) / 1000;
+            hud.textContent = `Score: ${Math.floor(score)}`;
 
-  // block の出現確率をさらに調整
-  if (pick === 'block' && Math.random() > CFG.blockChance / 0.08){
-    pick = 'normal';
-  }
+            // プレイヤーを滑らかに追う
+            const lerp = Math.min(1, 12 * dt);
+            player.x += (pointer.x - player.x) * lerp;
+            player.y += (pointer.y - player.y) * lerp;
 
-  if (pick === 'block'){
-    const bw = Math.round(rand(48,110) * scale);
-    const bh = Math.round(rand(18,36) * scale);
-    const y = rand(Math.round(H*0.35), Math.round(H*0.75));
-    const fromLeft = Math.random() < 0.5;
-    const x = fromLeft ? -bw : W + bw;
-    const vx = (fromLeft ? 1 : -1) * (120 + Math.random()*140) * scale;
-    blocks.push({ x, y, w: bw, h: bh, vx, passed:false });
-    return true;
-  }
+            // トレイル更新
+            trail.unshift({ x: player.x, y: player.y });
+            if (trail.length > TRAIL_MAX) trail.pop();
 
-  const shrink = Math.min(score * CFG.gapShrinkRate, (CFG.holeMax - CFG.holeMin) * 0.85);
-  let holeW_base = Math.round(clamp(CFG.holeMax - shrink, CFG.holeMin, CFG.holeMax) * scale);
-  if (pick === 'narrow') holeW_base = Math.round(Math.max(CFG.holeMin, holeW_base * 0.62));
-  const holeX = rand(8, Math.max(8, W - holeW_base - 8));
-  const th = Math.round(CFG.wall.thickness * scale);
-  const wall = { y: H + th, holeX, holeW: holeW_base, thickness: th, passed:false, type: pick };
+            // 敵スポーン
+            spawnTimer += dt;
+            const difficulty = Math.max(0.35, 1 - Math.min(0.85, score / 45));
+            if (spawnTimer > BASE_SPAWN * difficulty) {
+                spawnTimer = 0;
+                spawnEnemy();
+            }
 
-  if (pick === 'wobble'){
-    wall.wobbleAmp = Math.max(12, Math.round(28 * scale));
-    wall.wobbleSpeed = 0.003 + Math.random()*0.007;
-    wall.baseX = wall.holeX;
-    wall.phase = Math.random()*1000;
-  }
+            // 敵更新・削除
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                e.x += e.vx * dt;
+                e.y += e.vy * dt;
+                if (e.x < -200 || e.x > W + 200 || e.y < -200 || e.y > H + 200) enemies.splice(i, 1);
+            }
 
-  walls.push(wall);
-  return true;
-}
+            // 衝突判定
+            for (const e of enemies) {
+                if (collided(player, e)) return gameOver();
+            }
 
-/* --------------------
-   衝突判定補助
-   -------------------- */
-function rectsOverlap(a,b){ return !(a.x + a.w <= b.x || a.x >= b.x + b.w || a.y + a.h <= b.y || a.y >= b.y + b.h); }
+            draw();
+            requestAnimationFrame(loop);
+        }
 
-function rectCollidesWall(px, py, pw, ph, wall){
-  const top = wall.y - wall.thickness;
-  const bottom = wall.y;
-  if (py + ph <= top || py >= bottom) return false;
-  const hbShrink = CFG.hitboxShrink;
-  const hhW = Math.round(pw * hbShrink);
-  const hhH = Math.round(ph * hbShrink);
-  const hx = px + Math.round((pw - hhW)/2);
-  const hy = py + Math.round((ph - hhH)/2);
+        /* --- 描画 --- */
+        function draw() {
+            // 背景
+            ctx.fillStyle = '#060608';
+            ctx.fillRect(0, 0, W, H);
 
-  if (wall.holeX > 0){
-    const lw = { x:0, y:top, w:wall.holeX, h:wall.thickness };
-    if (rectsOverlap({x:hx,y:hy,w:hhW,h:hhH}, lw)) return true;
-  }
-  const rx = wall.holeX + wall.holeW;
-  if (rx < W){
-    const rw = { x:rx, y:top, w: W - rx, h: wall.thickness };
-    if (rectsOverlap({x:hx,y:hy,w:hhW,h:hhH}, rw)) return true;
-  }
-  return false;
-}
-function rectCollidesBlock(px,py,pw,ph,block){
-  const hbShrink = CFG.hitboxShrink;
-  const hhW = Math.round(pw * hbShrink);
-  const hhH = Math.round(ph * hbShrink);
-  const hx = px + Math.round((pw - hhW)/2);
-  const hy = py + Math.round((ph - hhH)/2);
-  return rectsOverlap({x:hx,y:hy,w:hhW,h:hhH}, {x:block.x,y:block.y,w:block.w,h:block.h});
-}
+            // トレイル
+            for (let i = 0; i < trail.length; i++) {
+                const p = trail[i];
+                const t = 1 - i / trail.length;
+                const rad = player.r * (0.6 + 1.4 * t);
+                ctx.beginPath();
+                ctx.fillStyle = `rgba(255,216,107,${0.12 + 0.45 * t})`;
+                ctx.arc(p.x, p.y, rad, 0, Math.PI * 2);
+                ctx.fill();
+            }
 
-/* --------------------
-   パーティクル
-   -------------------- */
-function makeParticles(x,y,count=CFG.particleCount){
-  for (let i=0;i<count;i++){
-    const ang = Math.random()*Math.PI*2;
-    const spd = 40 + Math.random()*140;
-    particles.push({
-      x, y,
-      vx: Math.cos(ang)*spd * (0.8 + Math.random()*0.6),
-      vy: Math.sin(ang)*spd * (0.3 + Math.random()*0.9),
-      life: 600 + Math.random()*400,
-      t: 0,
-      size: 2 + Math.random()*3
-    });
-  }
-}
+            // プレイヤーの光（簡単）
+            const g = ctx.createRadialGradient(player.x, player.y, player.r * 0.2, player.x, player.y, player.r * 3.5);
+            g.addColorStop(0, 'rgba(255,216,107,0.95)');
+            g.addColorStop(0.5, 'rgba(255,216,107,0.15)');
+            g.addColorStop(1, 'rgba(255,216,107,0)');
+            ctx.fillStyle = g;
+            ctx.fillRect(player.x - player.r * 4, player.y - player.r * 4, player.r * 8, player.r * 8);
 
-/* --------------------
-   メインアップデートループ
-   -------------------- */
-function update(ts){
-  if (!last) last = ts;
-  const dtMs = Math.min(120, ts - last);
-  const dt = dtMs / 1000;
-  last = ts;
+            // プレイヤー本体
+            ctx.beginPath();
+            ctx.fillStyle = '#fff';
+            ctx.arc(player.x, player.y, player.r * 0.55, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'rgba(255,216,107,0.95)';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
+            ctx.stroke();
 
-  if (!running){
-    draw(true); // gameOver 描画
-    requestAnimationFrame(update);
-    return;
-  }
+            // 敵
+            for (const e of enemies) {
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+                drawEnemy(e);
+                // 縁取り（fill のあと stroke）
+                ctx.beginPath(); ctx.stroke();
+            }
+        }
 
-  // プレイヤー移動（簡易物理）
-  player.targetDir = (input.left ? -1 : 0) + (input.right ? 1 : 0);
-  const desiredV = player.targetDir * CFG.player.speed * scale;
-  player.vx += (desiredV - player.vx) * Math.min(1, CFG.player.accel * dt);
-  player.vx -= player.vx * Math.min(1, CFG.player.friction * dt * 0.02);
-  player.x += player.vx * dt;
-  player.x = clamp(player.x, 0, W - player.w);
+        /* --- スタート / ゲームオーバー --- */
+        function startGame() {
+            enemies.length = 0;
+            trail.length = 0;
+            spawnTimer = 0;
+            startTime = performance.now();
+            lastTime = startTime;
+            score = 0;
+            running = true;
+            overlay.style.display = 'none';
+            player.x = W / 2; player.y = H * 0.8;
+            pointer.x = player.x; pointer.y = player.y;
+            requestAnimationFrame(loop);
+        }
 
-  // 壁・ブロックの移動
-  const wallSpeed = CFG.wall.baseSpeed * (1 + Math.min(2, score * 0.06)) * scale;
-  for (let w of walls){
-    w.y -= wallSpeed * dt;
-    if (w.type === 'wobble'){
-      w.phase += dtMs;
-      w.holeX = Math.round(w.baseX + Math.sin(w.phase * w.wobbleSpeed) * w.wobbleAmp);
-      w.holeX = clamp(w.holeX, 6, Math.max(6, W - w.holeW - 6));
-    }
-  }
-  for (let b of blocks) b.x += b.vx * dt;
+        function gameOver() {
+            running = false;
+            overlay.style.display = 'grid';
+            overlayTitle.textContent = 'Game Over';
+            overlayScore.textContent = `Score: ${Math.floor(score)}`;
+        }
 
-  // 得点判定（プレイヤーが壁を通過したら）
-  for (let w of walls){
-    if (!w.passed && w.y + 2 < player.y){
-      w.passed = true;
-      score += 1;
-      scoreEl.textContent = score;
-      makeParticles(player.x + player.w/2, player.y + player.h/2, 8);
-      if (score > best){ best = score; saveBest(); }
-    }
-  }
-
-  // 範囲外要素削除
-  walls = walls.filter(w => w.y > -w.thickness - 8);
-  blocks = blocks.filter(b => b.x + b.w > -80 && b.x < W + 80);
-
-  // spawn タイミング管理（spawn() 内でも近接チェックする）
-  spawnTimer += dtMs;
-  const targetInterval = Math.max(CFG.spawnMin, CFG.spawnBase - score * 14);
-  if (spawnTimer >= targetInterval){
-    spawnTimer = 0;
-    spawn();
-  }
-
-  // 衝突判定
-  for (let b of blocks){
-    if (rectCollidesBlock(player.x, player.y, player.w, player.h, b)){
-      running = false; draw(true); return;
-    }
-  }
-  for (let w of walls){
-    if (rectCollidesWall(player.x, player.y, player.w, player.h, w)){
-      running = false; draw(true); return;
-    }
-  }
-
-  // パーティクル更新
-  for (let p of particles){
-    p.t += dtMs;
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
-  }
-  particles = particles.filter(p => p.t < p.life);
-
-  // 描画呼び出し
-  draw(false);
-  requestAnimationFrame(update);
-}
-
-/* --------------------
-   描画関数（全部）
-   - GameOver 時は「背景を残して文字のみ表示（透過なし）」にする
-   -------------------- */
-function draw(gameOver) {
-  // 画面クリア
-  ctx.clearRect(0, 0, W, H);
-
-  // 背景（画像優先、無ければ単色）
-  if (assets.useBgImg && assets.bgImg && assets.bgImg.complete) {
-    ctx.drawImage(assets.bgImg, 0, 0, W, H);
-  } else {
-    ctx.fillStyle = '#fbffc0'; // 単色背景（好きに変更可）
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  // 短いヘルパー：矩形を塗って枠を描く
-  const fillRectWithStroke = (x, y, w, h, fill, stroke = 'rgba(0,0,0,0.18)') => {
-    ctx.fillStyle = fill; ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = stroke; ctx.strokeRect(x, y, w, h);
-  };
-
-  // 壁描画
-  for (let w of walls) {
-    const top = w.y - w.thickness;
-    if (w.holeX > 0) fillRectWithStroke(0, top, w.holeX, w.thickness, '#369c36');
-    const rx = w.holeX + w.holeW;
-    if (rx < W) fillRectWithStroke(rx, top, W - rx, w.thickness, '#369c36');
-
-    // 薄い帯の装飾
-    ctx.fillStyle = 'rgba(123,231,255,0.03)';
-    ctx.fillRect(Math.max(0, w.holeX - 10), top - 6, Math.min(W, w.holeW + 20), w.thickness + 12);
-
-    if (w.type === 'wobble') {
-      ctx.fillStyle = 'rgba(255,255,255,0.02)';
-      ctx.fillRect(w.holeX, top, w.holeW, w.thickness);
-    }
-  }
-
-  // ブロック描画
-  for (let b of blocks) {
-    fillRectWithStroke(b.x, b.y, b.w, b.h, '#ffcc66');
-  }
-
-  // パーティクル描画
-  for (let p of particles) {
-    const alpha = 1 - (p.t / p.life);
-    ctx.fillStyle = `rgba(190,255,255,${alpha})`;
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
-  }
-
-  // プレイヤー描画（優先して画像）
-  if (assets.usePlayerImg && assets.playerImg && assets.playerImg.complete) {
-    ctx.drawImage(assets.playerImg, player.x, player.y, player.w, player.h);
-  } else {
-    const rx = player.x, ry = player.y, rw = player.w, rh = player.h;
-    const rad = Math.max(4, Math.round(Math.min(rw, rh) * 0.25));
-
-    // 角丸矩形（本体）
-    roundRect(ctx, rx, ry, rw, rh, rad, true, false);
-
-    // シンプルな装飾（左右の三角）
-    ctx.fillStyle = '#839cf5';
-    ctx.beginPath();
-    ctx.moveTo(rx + rw * 0.18, ry + rh * 0.14);
-    ctx.lineTo(rx + rw * 0.18 + 8 * scale, ry - 6 * scale);
-    ctx.lineTo(rx + rw * 0.18 + 18 * scale, ry + rh * 0.14);
-    ctx.closePath(); ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(rx + rw * 0.82, ry + rh * 0.14);
-    ctx.lineTo(rx + rw * 0.82 - 8 * scale, ry - 6 * scale);
-    ctx.lineTo(rx + rw * 0.82 - 18 * scale, ry + rh * 0.14);
-    ctx.closePath(); ctx.fill();
-
-    // 内部グラデ
-    const pg = ctx.createLinearGradient(0, ry, 0, ry + rh);
-    pg.addColorStop(0, '#cfffff'); pg.addColorStop(1, '#7fe0df');
-    ctx.fillStyle = pg;
-    roundRect(ctx, rx + 1, ry + 1, rw - 2, rh - 2, Math.max(3, rad - 2), true, false);
-
-    // 足元の影
-    ctx.fillStyle = 'rgba(0,0,0,0.14)';
-    ctx.fillRect(rx + rw * 0.08, ry + rh + 4, rw * 0.84, 4);
-  }
-
-  // Game Over 時：背景はそのまま、中央にシンプルに文字のみ表示（透過は無し）
-  if (gameOver) {
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ff0000'; // GAME OVER の色
-    ctx.font = `bold ${32 * scale}px system-ui, Arial`;
-    ctx.fillText('GAME OVER', W / 2, H / 2);
-    // スコアも表示
-    ctx.font = `${18 * scale}px system-ui, Arial`;
-    ctx.fillText(`Score ${score}`, W / 2, H / 2 + 36 * scale);
-    ctx.restore();
-
-    // DOM 表示（中央メッセージ）を出す
-    handleGameOverDOM(gameOver);
-
-    // 終了時は更新を止めたい場合に早期リターン（必要ならコメントアウト）
-    return;
-  }
-
-  // gameOver でないときは DOM メッセージを消す
-  handleGameOverDOM(false);
-}
-
-/* --------------------
-   角丸矩形ヘルパー
-   -------------------- */
-/* 引数: ctx, x,y,w,h, r (数値|オブジェクト), fill(bool), stroke(bool) */
-function roundRect(ctx,x,y,w,h,r, fill, stroke){
-  if (typeof r === 'number') r = {tl:r,tr:r,br:r,bl:r};
-  ctx.beginPath();
-  ctx.moveTo(x + r.tl, y);
-  ctx.lineTo(x + w - r.tr, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r.tr);
-  ctx.lineTo(x + w, y + h - r.br);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r.br, y + h);
-  ctx.lineTo(x + r.bl, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r.bl);
-  ctx.lineTo(x, y + r.tl);
-  ctx.quadraticCurveTo(x, y, x + r.tl, y);
-  ctx.closePath();
-  if (fill) ctx.fill();
-  if (stroke) ctx.stroke();
-}
-
-/* --------------------
-   DOM 側の Game Over 表示（中央）
-   - 中央メッセージを作るが、画面上の描画が主なので薄めの UI にしている
-   これ、本当にいらないんだけど、ある。消したらなぜかエラー出るので置いてる。
-   -------------------- */
-function handleGameOverDOM(gameOver){
-  const existing = document.querySelector('.centerMsg'); if (existing) existing.remove();
-  if (!gameOver) return;
-  const msg = document.createElement('div');
-  msg.addEventListener('pointerdown', (e)=>{ e.preventDefault(); restart(); });
-  hud.appendChild(msg);
-}
-
-/* --------------------
-   入力（キーボード・タッチ）
-   -------------------- */
-window.addEventListener('keydown',(e)=>{
-  if (e.key==='ArrowLeft'||e.key==='a'||e.key==='A') input.left=true;
-  if (e.key==='ArrowRight'||e.key==='d'||e.key==='D') input.right=true;
-  if ((e.key==='r'||e.key==='R') && !running) restart();
-});
-window.addEventListener('keyup',(e)=>{
-  if (e.key==='ArrowLeft'||e.key==='a'||e.key==='A') input.left=false;
-  if (e.key==='ArrowRight'||e.key==='d'||e.key==='D') input.right=false;
-});
-
-canvas.addEventListener('pointerdown',(e)=>{
-  const r = canvas.getBoundingClientRect();
-  const x = e.clientX - r.left;
-  if (!running){ restart(); return; }
-  if (x < r.width/2) input.left = true; else input.right = true;
-});
-canvas.addEventListener('pointerup', ()=>{ input.left=false; input.right=false; });
-canvas.addEventListener('pointercancel', ()=>{ input.left=false; input.right=false; });
-
-/* --------------------
-   リスタート（ゲーム状態リセット）
-   -------------------- */
-function restart(){
-  walls = []; blocks = []; particles = [];
-  score = 0; spawnTimer = 0; running = true;
-  player.x = Math.round(W/2 - player.w/2);
-  player.vx = 0; scoreEl.textContent = score;
-  const ex = document.querySelector('.centerMsg'); if (ex) ex.remove();
-  // 初期 spawn を間隔を空けて行う（密集させない）
-  spawn(); setTimeout(()=>spawn(), 360); setTimeout(()=>spawn(), 760);
-  last = 0; requestAnimationFrame(update);
-}
-
-/* --------------------
-   初期化
-   -------------------- */
-function init(){
-  resize(); loadBest(); tryLoadAssets();
-  player.x = Math.round(W/2 - player.w/2);
-  scoreEl.textContent = score;
-  // 少し遅らせて最初の spawn を行う（余裕を持って開始）
-  setTimeout(()=>{ spawn(); spawnTimer = -200; }, 120);
-  requestAnimationFrame(update);
-}
-init();
-
-</script>
+        /* 初期表示 */
+        restartBtn.addEventListener('click', startGame);
+        resize();
+        overlay.style.display = 'grid';
+        overlayTitle.textContent = 'Trail Dodge';
+        overlayScore.textContent = 'Score: 0';
+    </script>
 </body>
+
 </html>
